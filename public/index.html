@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微信机器人 + AI CLI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      height: 100vh;
+      display: flex;
+    }
+    .sidebar {
+      width: 380px;
+      background: #1a1a2e;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-header {
+      padding: 20px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+    }
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #888;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff4444;
+    }
+    .status-dot.connected { background: #44ff44; }
+    .status-dot.connecting { background: #ffaa00; }
+
+    .section {
+      padding: 20px;
+      border-bottom: 1px solid #0f3460;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #e94560;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #providerList {
+      margin-top: 10px;
+      margin-bottom: 15px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .btn-primary {
+      background: #e94560;
+      color: white;
+    }
+    .btn-primary:hover { background: #d63d56; }
+    .btn-secondary {
+      background: #0f3460;
+      color: white;
+      margin-top: 10px;
+    }
+    .btn-secondary:hover { background: #1a4a7a; }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 5px;
+      color: #aaa;
+    }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      color: white;
+      font-size: 13px;
+    }
+    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+      outline: none;
+      border-color: #e94560;
+    }
+    .form-group textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    .form-group select {
+      cursor: pointer;
+    }
+    .form-group select option {
+      background: #16213e;
+      color: white;
+    }
+
+    .toggle-switch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .toggle-switch input {
+      display: none;
+    }
+    .toggle-slider {
+      width: 40px;
+      height: 20px;
+      background: #0f3460;
+      border-radius: 20px;
+      position: relative;
+      transition: 0.3s;
+    }
+    .toggle-slider::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      transition: 0.3s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: #e94560;
+    }
+    .toggle-switch input:checked + .toggle-slider::after {
+      left: 22px;
+    }
+    .toggle-label {
+      font-size: 13px;
+    }
+
+    .provider-card {
+      background: #16213e;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.3s;
+    }
+    .provider-card:hover {
+      border-color: #e94560;
+    }
+    .provider-card.selected {
+      border-color: #e94560;
+      background: #1a3350;
+    }
+    .provider-card h4 {
+      font-size: 14px;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+    .provider-card p {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .qr-container {
+      margin-top: 15px;
+      text-align: center;
+      padding: 15px;
+      background: #16213e;
+      border-radius: 8px;
+    }
+    .qr-container img {
+      max-width: 180px;
+      border-radius: 4px;
+    }
+    .qr-container p {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .account-info {
+      margin-top: 15px;
+      padding: 15px;
+      background: #16213e;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .account-info h3 {
+      font-size: 13px;
+      margin-bottom: 10px;
+      color: #44ff44;
+    }
+    .account-info p {
+      color: #888;
+      margin: 5px 0;
+      word-break: break-all;
+    }
+
+    .test-result {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .test-result.success {
+      background: rgba(68, 255, 68, 0.1);
+      color: #44ff44;
+    }
+    .test-result.error {
+      background: rgba(255, 68, 68, 0.1);
+      color: #ff4444;
+    }
+
+    .btn-refresh {
+      background: transparent;
+      border: 1px solid #e94560;
+      color: #e94560;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 10px;
+      transition: all 0.3s;
+    }
+    .btn-refresh:hover {
+      background: #e94560;
+      color: white;
+    }
+    .btn-refresh:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-header {
+      background: white;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chat-header h2 {
+      font-size: 16px;
+      font-weight: 500;
+    }
+    .chat-header .badge {
+      background: #666;
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .chat-header .badge.active {
+      background: #07c160;
+    }
+
+    .messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      background: #f0f2f5;
+    }
+    .message {
+      display: flex;
+      margin-bottom: 15px;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .message.incoming { justify-content: flex-start; }
+    .message.outgoing { justify-content: flex-end; }
+    .message.system { justify-content: center; }
+    .message-content {
+      max-width: 60%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .message.incoming .message-content {
+      background: white;
+      color: #333;
+      border-bottom-left-radius: 4px;
+    }
+    .message.outgoing .message-content {
+      background: #07c160;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .message.system .message-content {
+      background: #e94560;
+      color: white;
+      font-size: 12px;
+    }
+    .message-meta {
+      font-size: 11px;
+      color: #999;
+      margin-top: 4px;
+    }
+    .message.incoming .message-meta { text-align: left; }
+    .message.outgoing .message-meta { text-align: right; }
+
+    .input-container {
+      background: white;
+      padding: 15px 20px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 10px;
+    }
+    .input-container input {
+      flex: 1;
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+    }
+    .input-container input:focus { border-color: #e94560; }
+    .input-container button {
+      padding: 10px 20px;
+      background: #e94560;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .input-container button:hover { background: #d63d56; }
+    .input-container button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #666;
+    }
+
+    .hidden { display: none !important; }
+
+    .typing-indicator {
+      font-style: italic;
+      color: #888;
+      font-size: 12px;
+      margin: 5px 0;
+    }
+
+    .ai-progress {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin: 5px 0;
+      animation: fadeIn 0.3s ease;
+    }
+    .ai-progress.thinking {
+      background: rgba(255, 193, 7, 0.1);
+      color: #ffc107;
+    }
+    .ai-progress.processing {
+      background: rgba(33, 150, 243, 0.1);
+      color: #2196f3;
+    }
+    .ai-progress.sending {
+      background: rgba(156, 39, 176, 0.1);
+      color: #9c27b0;
+    }
+    .ai-progress.complete {
+      background: rgba(76, 175, 80, 0.1);
+      color: #4caf50;
+    }
+    .ai-progress.error {
+      background: rgba(244, 67, 54, 0.1);
+      color: #f44336;
+    }
+
+    /* Markdown 样式 */
+    .markdown-body {
+      line-height: 1.6;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3, 
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+      margin: 12px 0 8px 0;
+      font-weight: 600;
+    }
+    .markdown-body h1 { font-size: 1.5em; }
+    .markdown-body h2 { font-size: 1.3em; }
+    .markdown-body h3 { font-size: 1.1em; }
+    .markdown-body p {
+      margin: 8px 0;
+    }
+    .markdown-body ul, .markdown-body ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    .markdown-body li {
+      margin: 4px 0;
+    }
+    .markdown-body code {
+      background: rgba(0,0,0,0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.9em;
+    }
+    .markdown-body pre {
+      background: rgba(0,0,0,0.1);
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    .markdown-body pre code {
+      background: transparent;
+      padding: 0;
+    }
+    .markdown-body blockquote {
+      border-left: 4px solid #e94560;
+      margin: 10px 0;
+      padding-left: 12px;
+      color: #666;
+    }
+    .markdown-body a {
+      color: #e94560;
+      text-decoration: none;
+    }
+    .markdown-body a:hover {
+      text-decoration: underline;
+    }
+    .markdown-body table {
+      border-collapse: collapse;
+      margin: 10px 0;
+      width: 100%;
+    }
+    .markdown-body th, .markdown-body td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    .markdown-body th {
+      background: rgba(0,0,0,0.05);
+    }
+
+    /* 为 outgoing 消息中的 markdown 调整样式 */
+    .message.outgoing .markdown-body code {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+    }
+    .message.outgoing .markdown-body pre {
+      background: rgba(0,0,0,0.2);
+    }
+    .message.outgoing .markdown-body blockquote {
+      border-left-color: rgba(255,255,255,0.5);
+      color: rgba(255,255,255,0.9);
+    }
+    .message.outgoing .markdown-body a {
+      color: #fff;
+      text-decoration: underline;
+    }
+    .message.outgoing .markdown-body th, 
+    .message.outgoing .markdown-body td {
+      border-color: rgba(255,255,255,0.3);
+    }
+    .message.outgoing .markdown-body th {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .install-info {
+      background: #0f3460;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 10px;
+    }
+    .install-info code {
+      background: #1a1a2e;
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: #e94560;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>🤖 微信 + AI CLI</h1>
+      <div class="connection-status">
+        <span class="status-dot" id="wechatStatus"></span>
+        <span id="wechatStatusText">微信未连接</span>
+      </div>
+      <div class="connection-status">
+        <span class="status-dot" id="aiStatus"></span>
+        <span id="aiStatusText">AI 未配置</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">📱 微信登录</div>
+      <button class="btn btn-primary" id="loginBtn" onclick="startLogin()">扫码登录</button>
+      <button class="btn btn-secondary hidden" id="logoutBtn" onclick="logout()">退出登录</button>
+
+      <div id="qrContainer" class="qr-container hidden">
+        <img id="qrImage" src="" alt="登录二维码">
+        <p>请使用微信扫描二维码</p>
+      </div>
+
+      <div id="accountInfo" class="account-info hidden">
+        <h3>✅ 已登录</h3>
+        <p>Bot: <span id="accountId"></span></p>
+        <p>用户: <span id="userId"></span></p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">🤖 选择 AI 工具</div>
+      
+      <div id="providerList"></div>
+      
+      <div class="form-group" style="margin-top: 15px;">
+        <label class="toggle-switch">
+          <input type="checkbox" id="aiEnabled" onchange="toggleAI()">
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">启用 AI 回复</span>
+        </label>
+      </div>
+
+      <div id="aiConfig" class="hidden">
+        <div class="form-group">
+          <label>
+            选择模型/Agent
+            <button class="btn-refresh" onclick="refreshAgents()">🔄 刷新</button>
+          </label>
+          <select id="agentSelect" onchange="onAgentChange()">
+            <option value="">-- 选择模型 --</option>
+          </select>
+        </div>
+        
+        <button class="btn btn-secondary" onclick="testAI()">测试连接</button>
+        <button class="btn btn-primary" onclick="saveAIConfig()">保存配置</button>
+        <div id="testResult" class="test-result hidden"></div>
+        
+        <div id="installInfo" class="install-info hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="chat-header">
+      <h2>💬 消息中心</h2>
+      <span class="badge" id="aiBadge">AI 已关闭</span>
+    </div>
+
+    <div class="messages-container" id="messagesContainer">
+      <div class="empty-state">
+        <h3>👋 欢迎使用</h3>
+        <p>1. 扫码登录微信</p>
+        <p>2. 选择 AI 工具 (OpenCode/Codex/Claude)</p>
+        <p>3. 开始智能对话</p>
+      </div>
+    </div>
+
+    <div class="input-container">
+      <input type="text" id="messageInput" placeholder="输入消息 (用户ID:消息内容)" disabled>
+      <button id="sendBtn" onclick="sendMessage()" disabled>发送</button>
+    </div>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${window.location.host}`);
+    let messages = [];
+    let isLoggedIn = false;
+    let isAiEnabled = false;
+    let typingUsers = new Set();
+    let currentProvider = null;
+    let availableProviders = [];
+    let availableAgents = [];
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      handleWebSocketMessage(data);
+    };
+
+    ws.onopen = () => { addSystemMessage('WebSocket 已连接'); };
+    ws.onclose = () => {
+      addSystemMessage('WebSocket 已断开');
+      updateWeChatStatus(false);
+    };
+
+    function handleWebSocketMessage(data) {
+      switch (data.type) {
+        case 'qrCode':
+          showQRCode(data.qrImage);
+          break;
+        case 'loginSuccess':
+          onLoginSuccess(data);
+          break;
+        case 'message':
+          addMessage(data.message);
+          break;
+        case 'typing':
+          showTyping(data.userId);
+          break;
+        case 'aiProgress':
+          showAIProgress(data);
+          break;
+        case 'error':
+          addSystemMessage('错误: ' + data.message);
+          break;
+        case 'logout':
+          onLogout();
+          break;
+      }
+    }
+
+    // Load providers
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/providers');
+        const data = await res.json();
+        if (data.success) {
+          availableProviders = data.providers;
+          renderProviders();
+        }
+      } catch (err) {
+        console.error('Failed to load providers:', err);
+      }
+    }
+
+    function renderProviders() {
+      const container = document.getElementById('providerList');
+      container.innerHTML = availableProviders.map(p => `
+        <div class="provider-card ${currentProvider === p.id ? 'selected' : ''}" onclick="selectProvider('${p.id}')">
+          <h4>${p.name}</h4>
+          <p>${p.description}</p>
+        </div>
+      `).join('');
+    }
+
+    function selectProvider(providerId) {
+      currentProvider = providerId;
+      renderProviders();
+      
+      const provider = availableProviders.find(p => p.id === providerId);
+      const installInfo = document.getElementById('installInfo');
+      if (provider) {
+        installInfo.classList.remove('hidden');
+        installInfo.innerHTML = `
+          安装命令:<br>
+          <code>${provider.installCommand}</code>
+        `;
+      }
+      
+      // 自动刷新 Agent 列表
+      if (document.getElementById('aiEnabled').checked) {
+        refreshAgents();
+      }
+    }
+
+    function toggleAI() {
+      const enabled = document.getElementById('aiEnabled').checked;
+      document.getElementById('aiConfig').classList.toggle('hidden', !enabled);
+      updateAIBadge(enabled && isLoggedIn);
+      
+      if (enabled && currentProvider) {
+        refreshAgents();
+      }
+    }
+
+    async function refreshAgents() {
+      if (!currentProvider) {
+        addSystemMessage('请先选择 AI 工具');
+        return;
+      }
+
+      const select = document.getElementById('agentSelect');
+      const refreshBtn = document.querySelector('.btn-refresh');
+      
+      select.disabled = true;
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '⏳ 加载中...';
+
+      try {
+        const res = await fetch(`/api/ai/agents?provider=${currentProvider}`);
+        const data = await res.json();
+
+        if (data.success && data.agents) {
+          availableAgents = data.agents;
+          
+          select.innerHTML = '<option value="">-- 选择模型 --</option>';
+          
+          if (data.agents.length === 0) {
+            select.innerHTML += '<option value="" disabled>未找到模型</option>';
+          } else {
+            data.agents.forEach(agent => {
+              const option = document.createElement('option');
+              option.value = agent.id;
+              option.textContent = agent.name + (agent.description ? ` - ${agent.description}` : '');
+              select.appendChild(option);
+            });
+          }
+        } else {
+          select.innerHTML = '<option value="" disabled>加载失败</option>';
+        }
+      } catch (err) {
+        console.error('Failed to load agents:', err);
+        select.innerHTML = '<option value="" disabled>加载失败: ' + err.message + '</option>';
+      } finally {
+        select.disabled = false;
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄 刷新';
+      }
+    }
+
+    function onAgentChange() {
+      const select = document.getElementById('agentSelect');
+      const agentId = select.value;
+    }
+
+    async function testAI() {
+      if (!currentProvider) {
+        addSystemMessage('请先选择 AI 工具');
+        return;
+      }
+
+      const resultDiv = document.getElementById('testResult');
+      resultDiv.classList.remove('hidden', 'success', 'error');
+      resultDiv.textContent = '测试中...';
+
+      const config = {
+        enabled: true,
+        provider: currentProvider,
+        model: document.getElementById('agentSelect').value,
+        timeout: 120000
+      };
+
+      try {
+        const res = await fetch('/api/ai/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        const data = await res.json();
+
+        resultDiv.classList.add(data.success ? 'success' : 'error');
+        resultDiv.textContent = data.message;
+      } catch (err) {
+        resultDiv.classList.add('error');
+        resultDiv.textContent = '测试失败: ' + err.message;
+      }
+    }
+
+    async function saveAIConfig() {
+      if (!currentProvider) {
+        addSystemMessage('请先选择 AI 工具');
+        return;
+      }
+
+      const config = {
+        enabled: document.getElementById('aiEnabled').checked,
+        provider: currentProvider,
+        model: document.getElementById('agentSelect').value,
+        timeout: 120000
+      };
+
+      try {
+        const res = await fetch('/api/ai/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          isAiEnabled = data.enabled;
+          updateAIBadge(isAiEnabled);
+          updateAIStatus(isAiEnabled);
+          addSystemMessage(`${availableProviders.find(p => p.id === currentProvider)?.name || 'AI'} 配置已保存`);
+        }
+      } catch (err) {
+        addSystemMessage('保存配置失败: ' + err.message);
+      }
+    }
+
+    async function startLogin() {
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: true })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          addSystemMessage('登录失败: ' + data.error);
+        }
+      } catch (err) {
+        addSystemMessage('登录请求失败: ' + err.message);
+      }
+    }
+
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      onLogout();
+    }
+
+    function showQRCode(imageData) {
+      document.getElementById('qrImage').src = imageData;
+      document.getElementById('qrContainer').classList.remove('hidden');
+    }
+
+    function onLoginSuccess(data) {
+      isLoggedIn = true;
+      updateWeChatStatus(true);
+
+      document.getElementById('qrContainer').classList.add('hidden');
+      document.getElementById('loginBtn').classList.add('hidden');
+      document.getElementById('logoutBtn').classList.remove('hidden');
+      document.getElementById('accountInfo').classList.remove('hidden');
+      document.getElementById('accountId').textContent = data.accountId;
+      document.getElementById('userId').textContent = data.userId;
+
+      document.getElementById('messageInput').disabled = false;
+      document.getElementById('sendBtn').disabled = false;
+
+      updateAIBadge(isAiEnabled);
+      addSystemMessage('微信登录成功！');
+
+      loadAIConfig();
+    }
+
+    function onLogout() {
+      isLoggedIn = false;
+      updateWeChatStatus(false);
+      updateAIBadge(false);
+
+      document.getElementById('loginBtn').classList.remove('hidden');
+      document.getElementById('logoutBtn').classList.add('hidden');
+      document.getElementById('accountInfo').classList.add('hidden');
+      document.getElementById('qrContainer').classList.add('hidden');
+
+      document.getElementById('messageInput').disabled = true;
+      document.getElementById('sendBtn').disabled = true;
+
+      messages = [];
+      renderMessages();
+      addSystemMessage('已退出登录');
+    }
+
+    async function loadAIConfig() {
+      try {
+        const res = await fetch('/api/ai/config');
+        const data = await res.json();
+        if (data.success && data.config) {
+          const config = data.config;
+          document.getElementById('aiEnabled').checked = config.enabled;
+          
+          if (config.provider) {
+            currentProvider = config.provider;
+            renderProviders();
+            await refreshAgents();
+            
+            if (config.model) {
+              document.getElementById('agentSelect').value = config.model;
+            }
+          }
+          
+          toggleAI();
+          isAiEnabled = config.enabled;
+          updateAIStatus(isAiEnabled);
+          updateAIBadge(isAiEnabled && isLoggedIn);
+        }
+      } catch (err) {
+        console.error('Failed to load config:', err);
+      }
+    }
+
+    function updateWeChatStatus(connected) {
+      const dot = document.getElementById('wechatStatus');
+      const text = document.getElementById('wechatStatusText');
+      dot.classList.toggle('connected', connected);
+      text.textContent = connected ? '微信已连接' : '微信未连接';
+    }
+
+    function updateAIStatus(enabled) {
+      const dot = document.getElementById('aiStatus');
+      const text = document.getElementById('aiStatusText');
+      dot.classList.toggle('connected', enabled);
+      
+      if (enabled && currentProvider) {
+        const provider = availableProviders.find(p => p.id === currentProvider);
+        text.textContent = (provider?.name || 'AI') + ' 已启用';
+      } else {
+        text.textContent = 'AI 未配置';
+      }
+    }
+
+    function updateAIBadge(active) {
+      const badge = document.getElementById('aiBadge');
+      if (active && currentProvider) {
+        const provider = availableProviders.find(p => p.id === currentProvider);
+        badge.textContent = (provider?.name || 'AI') + ' 已启用';
+      } else {
+        badge.textContent = 'AI 已关闭';
+      }
+      badge.classList.toggle('active', active);
+    }
+
+    function addMessage(msg) {
+      messages.push(msg);
+      renderMessages();
+    }
+
+    function addSystemMessage(text) {
+      messages.push({
+        userId: 'system',
+        text,
+        type: 'text',
+        timestamp: new Date().toISOString(),
+        direction: 'system'
+      });
+      renderMessages();
+    }
+
+    function showTyping(userId) {
+      if (!typingUsers.has(userId)) {
+        typingUsers.add(userId);
+        renderMessages();
+        setTimeout(() => {
+          typingUsers.delete(userId);
+          renderMessages();
+        }, 3000);
+      }
+    }
+
+    // AI 处理进度显示
+    let aiProgress = new Map();
+    
+    function showAIProgress(data) {
+      const { userId, stage, message, progress } = data;
+      
+      // 根据阶段显示不同的状态
+      let progressText = '';
+      let progressClass = '';
+      
+      switch (stage) {
+        case 'thinking':
+          progressText = '💭 思考中...';
+          progressClass = 'thinking';
+          break;
+        case 'processing':
+          progressText = `⚙️ ${message || '生成回复中...'}`;
+          progressClass = 'processing';
+          break;
+        case 'sending':
+          progressText = `📤 ${message || '发送中...'}` + (progress ? ` (${progress}%)` : '');
+          progressClass = 'sending';
+          break;
+        case 'complete':
+          progressText = '✅ ' + (message || '发送完成');
+          progressClass = 'complete';
+          // 2秒后清除完成状态
+          setTimeout(() => {
+            aiProgress.delete(userId);
+            renderMessages();
+          }, 2000);
+          break;
+        case 'error':
+          progressText = '❌ ' + (message || '处理失败');
+          progressClass = 'error';
+          setTimeout(() => {
+            aiProgress.delete(userId);
+            renderMessages();
+          }, 3000);
+          break;
+      }
+      
+      if (progressText) {
+        aiProgress.set(userId, { text: progressText, class: progressClass });
+        renderMessages();
+      }
+    }
+
+    function renderMessages() {
+      const container = document.getElementById('messagesContainer');
+
+      if (messages.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <h3>👋 欢迎使用</h3>
+            <p>1. 选择 AI 工具 (OpenCode/Codex/Claude)</p>
+            <p>2. 扫码登录微信</p>
+            <p>3. 开始智能对话</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = messages.map(msg => {
+        // 对 AI 回复(outgoing)使用 markdown 解析，对用户消息(incoming)使用纯文本
+        const contentHtml = msg.direction === 'outgoing' 
+          ? marked.parse(msg.text || '')
+          : escapeHtml(msg.text);
+        
+        return `
+        <div class="message ${msg.direction}">
+          <div>
+            <div class="message-content markdown-body">${contentHtml}</div>
+            <div class="message-meta">
+              ${msg.direction === 'incoming' ? '👤 ' + msg.userId : msg.direction === 'outgoing' ? '🤖 ' + (msg.provider || '机器人') : '💬 系统'}
+              · ${new Date(msg.timestamp).toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+      `}).join('');
+
+      if (typingUsers.size > 0) {
+        html += '<div class="typing-indicator">对方正在输入...</div>';
+      }
+
+      // 显示 AI 处理进度
+      aiProgress.forEach((progress, userId) => {
+        html += `<div class="ai-progress ${progress.class}">${progress.text}</div>`;
+      });
+
+      container.innerHTML = html;
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const parts = text.split(':');
+      if (parts.length < 2) {
+        addSystemMessage('格式: 用户ID:消息内容');
+        return;
+      }
+
+      const userId = parts[0].trim();
+      const messageText = parts.slice(1).join(':').trim();
+
+      try {
+        await fetch('/api/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, text: messageText })
+        });
+        input.value = '';
+      } catch (err) {
+        addSystemMessage('发送失败: ' + err.message);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    document.getElementById('messageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    // Initialize
+    loadProviders();
+    loadAIConfig();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</body>
+</html>

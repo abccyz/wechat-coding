@@ -1,0 +1,54 @@
+export interface Message {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface CLIProviderConfig {
+  enabled: boolean;
+  provider: string;
+  model?: string;
+  timeout: number;
+  extraArgs?: string[];
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface TestResult {
+  success: boolean;
+  message: string;
+}
+
+export abstract class CLIProvider {
+  protected config: CLIProviderConfig;
+
+  constructor(config: CLIProviderConfig) {
+    this.config = {
+      timeout: 600000,
+      ...config
+    };
+  }
+
+  updateConfig(config: Partial<CLIProviderConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): CLIProviderConfig {
+    return { ...this.config };
+  }
+
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
+  abstract getName(): string;
+  abstract getDescription(): string;
+  abstract getInstallCommand(): string;
+  
+  abstract processMessage(text: string, history?: Message[]): Promise<string | null>;
+  abstract listAgents?(): Promise<Agent[]>;
+  abstract testConnection(): Promise<TestResult>;
+}

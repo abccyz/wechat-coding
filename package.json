@@ -1,0 +1,51 @@
+{
+  "name": "weixin-bot",
+  "version": "1.0.0",
+  "description": "WeChat iLink Bot SDK for Node.js - 微信机器人 SDK",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "example": "npx tsx examples/nodejs/echo-bot.ts",
+    "web": "npx tsx web/server.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "wechat",
+    "weixin",
+    "bot",
+    "sdk",
+    "chatbot",
+    "微信",
+    "机器人"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "marked": "^17.0.5",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.20.0"
+  }
+}
