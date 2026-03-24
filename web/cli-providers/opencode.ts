@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate } from './base.ts';
+import { opencodeManager } from '../../src/tools/opencode-manager.ts';
 
 export class OpenCodeProvider extends CLIProvider {
   getName(): string {
@@ -93,8 +94,12 @@ export class OpenCodeProvider extends CLIProvider {
         });
       }
 
+      const cwd = opencodeManager.getCurrentDirectory() || process.cwd();
+      console.log(`[OpenCode] Working directory: ${cwd}`);
+
       const opencode = spawn('opencode', args, {
         timeout: this.config.timeout,
+        cwd: cwd,
         env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
       });
 
