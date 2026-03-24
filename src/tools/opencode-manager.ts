@@ -1,6 +1,7 @@
 import { exec, execSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 export interface OpenCodeProcess {
   pid: number;
@@ -19,10 +20,8 @@ export class OpenCodeManager {
   private processes: Map<number, OpenCodeProcess> = new Map();
   private strongMode: boolean = false;
   private currentManagedDir: string | null = null;
+  private isWindows: boolean = os.platform() === 'win32';
 
-  /**
-   * 启用/禁用强管模式
-   */
   setStrongMode(enabled: boolean) {
     this.strongMode = enabled;
     if (enabled) {
@@ -34,42 +33,98 @@ export class OpenCodeManager {
     return this.strongMode;
   }
 
-  /**
-   * 扫描所有 OpenCode 进程
-   */
+  private getOpenCodePattern(): string {
+    return this.isWindows ? 'opencode' : 'bin/\\.opencode$';
+  }
+
   scanProcesses(): OpenCodeProcess[] {
     const processes: OpenCodeProcess[] = [];
     
     try {
-      const output = execSync('pgrep -f "bin/\\.opencode$"', { 
-        encoding: 'utf-8',
-        timeout: 5000 
-      });
+      let output: string;
       
-      const pids = output.trim().split('\n').filter(p => p);
-      
-      for (const pidStr of pids) {
-        const pid = parseInt(pidStr, 10);
-        if (isNaN(pid)) continue;
-        
+      if (this.isWindows) {
+        // Windows: 使用 wmic 或 tasklist
         try {
-          const cwdOutput = execSync(`lsof -p ${pid} | grep " cwd " | awk '{print $9}'`, {
+          output = execSync('wmic process where "name like \'%opencode%\'" get ProcessId,CommandLine /format:csv', {
             encoding: 'utf-8',
-            timeout: 2000
+            timeout: 5000
           });
-          const cwd = cwdOutput.trim();
-          
-          const process: OpenCodeProcess = {
-            pid,
-            cwd,
-            startTime: new Date(),
-            managed: this.strongMode
-          };
-          
-          processes.push(process);
-          this.processes.set(pid, process);
+          const lines = output.trim().split('\n').filter(line => line.includes('opencode'));
+          for (const line of lines) {
+            const parts = line.split(',');
+            const pid = parseInt(parts[parts.length - 1], 10);
+            if (!isNaN(pid)) {
+              try {
+                const cwd = this.getProcessCwdWindows(pid);
+                if (cwd) {
+                  const proc: OpenCodeProcess = {
+                    pid,
+                    cwd,
+                    startTime: new Date(),
+                    managed: this.strongMode
+                  };
+                  processes.push(proc);
+                  this.processes.set(pid, proc);
+                }
+              } catch {}
+            }
+          }
         } catch {
-          // 进程可能已退出
+          // 备用方案：使用 tasklist
+          try {
+            output = execSync('tasklist /FI "IMAGENAME eq opencode.exe" /FO CSV', {
+              encoding: 'utf-8',
+              timeout: 5000
+            });
+            const lines = output.trim().split('\n').slice(1);
+            for (const line of lines) {
+              const match = line.match(/"opencode\.exe","(\d+)"/);
+              if (match) {
+                const pid = parseInt(match[1], 10);
+                try {
+                  const cwd = this.getProcessCwdWindows(pid);
+                  if (cwd) {
+                    const proc: OpenCodeProcess = {
+                      pid,
+                      cwd,
+                      startTime: new Date(),
+                      managed: this.strongMode
+                    };
+                    processes.push(proc);
+                    this.processes.set(pid, proc);
+                  }
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+      } else {
+        // Unix-like (macOS/Linux)
+        output = execSync('pgrep -f "bin/\\.opencode$"', {
+          encoding: 'utf-8',
+          timeout: 5000
+        });
+        
+        const pids = output.trim().split('\n').filter(p => p);
+        
+        for (const pidStr of pids) {
+          const pid = parseInt(pidStr, 10);
+          if (isNaN(pid)) continue;
+          
+          try {
+            const cwd = this.getProcessCwdUnix(pid);
+            if (cwd) {
+              const proc: OpenCodeProcess = {
+                pid,
+                cwd,
+                startTime: new Date(),
+                managed: this.strongMode
+              };
+              processes.push(proc);
+              this.processes.set(pid, proc);
+            }
+          } catch {}
         }
       }
     } catch {
@@ -79,46 +134,90 @@ export class OpenCodeManager {
     return processes;
   }
 
-  /**
-   * 获取当前 OpenCode 进程的工作目录
-   */
-  async getCurrentWorkingDir(): Promise<string | null> {
+  private getProcessCwdWindows(pid: number): string | null {
     try {
-      const processes = this.getProcesses();
-      if (processes.length === 0) {
-        return null;
+      // 使用 PowerShell 获取进程工作目录
+      const output = execSync(`powershell -Command "(Get-Process -Id ${pid}).Path"`, {
+        encoding: 'utf-8',
+        timeout: 2000
+      });
+      const exePath = output.trim();
+      if (exePath) {
+        return path.dirname(exePath);
       }
-      
-      // 按启动时间排序，取最近的
-      const sorted = processes.sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
-      return sorted[0].cwd;
-    } catch {
-      return null;
-    }
+    } catch {}
+    
+    // 备用方案：尝试读取环境变量
+    try {
+      const output = execSync(`wmic process where "ProcessId=${pid}" get ExecutablePath /value`, {
+        encoding: 'utf-8',
+        timeout: 2000
+      });
+      const match = output.match(/ExecutablePath=(.+)/);
+      if (match) {
+        return path.dirname(match[1].trim());
+      }
+    } catch {}
+    
+    return null;
   }
 
-  /**
-   * 获取正在运行的 OpenCode 进程 PID
-   */
+  private getProcessCwdUnix(pid: number): string | null {
+    try {
+      const output = execSync(`lsof -p ${pid} | grep " cwd " | awk '{print $9}'`, {
+        encoding: 'utf-8',
+        timeout: 2000
+      });
+      return output.trim() || null;
+    } catch {
+      // 备用方案：读取 /proc/PID/cwd
+      try {
+        const cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
+        return cwd;
+      } catch {}
+    }
+    return null;
+  }
+
+  async getCurrentWorkingDir(): Promise<string | null> {
+    const processes = this.getProcesses();
+    if (processes.length === 0) {
+      return null;
+    }
+    const sorted = processes.sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+    return sorted[0].cwd;
+  }
+
   async getCurrentPid(): Promise<number | null> {
     try {
-      const result = execSync('pgrep -f "bin/\\.opencode$" | head -1', {
-        encoding: 'utf-8',
-        timeout: 5000
-      });
-      const pid = parseInt(result.trim(), 10);
-      return isNaN(pid) ? null : pid;
-    } catch {
-      return null;
-    }
+      if (this.isWindows) {
+        const output = execSync('tasklist /FI "IMAGENAME eq opencode.exe" /FO CSV', {
+          encoding: 'utf-8',
+          timeout: 5000
+        });
+        const match = output.match(/"opencode\.exe","(\d+)"/);
+        if (match) {
+          return parseInt(match[1], 10);
+        }
+      } else {
+        const output = execSync('pgrep -f "bin/\\.opencode$" | head -1', {
+          encoding: 'utf-8',
+          timeout: 5000
+        });
+        const pid = parseInt(output.trim(), 10);
+        return isNaN(pid) ? null : pid;
+      }
+    } catch {}
+    return null;
   }
 
-  /**
-   * 杀死指定进程
-   */
   killProcess(pid: number): boolean {
     try {
-      execSync(`kill -9 ${pid} 2>/dev/null || true`, { timeout: 5000 });
+      if (this.isWindows) {
+        execSync(`taskkill /PID ${pid} /F`, { timeout: 5000 });
+      } else {
+        execSync(`kill -9 ${pid} 2>/dev/null || true`, { timeout: 5000 });
+      }
       this.processes.delete(pid);
       return true;
     } catch {
@@ -126,12 +225,13 @@ export class OpenCodeManager {
     }
   }
 
-  /**
-   * 杀死当前 OpenCode 进程
-   */
   async killOpenCode(): Promise<boolean> {
     try {
-      execSync('pkill -f "bin/\\.opencode$"', { timeout: 5000 });
+      if (this.isWindows) {
+        execSync('taskkill /IM opencode.exe /F', { timeout: 5000 });
+      } else {
+        execSync('pkill -f "bin/\\.opencode$"', { timeout: 5000 });
+      }
       await new Promise(resolve => setTimeout(resolve, 500));
       return true;
     } catch {
@@ -139,9 +239,6 @@ export class OpenCodeManager {
     }
   }
 
-  /**
-   * 杀死所有 OpenCode 进程
-   */
   killAllProcesses(): number {
     let killed = 0;
     
@@ -151,19 +248,22 @@ export class OpenCodeManager {
       }
     }
     
-    // 再次尝试全局杀死
-    try {
-      execSync('pkill -f "bin/\\.opencode$" 2>/dev/null || true', { timeout: 5000 });
-      killed++;
-    } catch {}
+    if (this.isWindows) {
+      try {
+        execSync('taskkill /IM opencode.exe /F 2>nul || exit 0', { timeout: 5000 });
+        killed++;
+      } catch {}
+    } else {
+      try {
+        execSync('pkill -f "bin/\\.opencode$" 2>/dev/null || true', { timeout: 5000 });
+        killed++;
+      } catch {}
+    }
     
     this.processes.clear();
     return killed;
   }
 
-  /**
-   * 在新目录启动 OpenCode
-   */
   async startInDirectory(targetPath: string): Promise<{ success: boolean; pid?: number; message: string }> {
     if (!fs.existsSync(targetPath)) {
       return { success: false, message: `目录不存在: ${targetPath}` };
@@ -176,7 +276,6 @@ export class OpenCodeManager {
 
     const resolvedPath = path.resolve(targetPath);
 
-    // 强管模式：先杀死所有进程
     if (this.strongMode) {
       this.killAllProcesses();
       await new Promise(r => setTimeout(r, 500));
@@ -184,17 +283,18 @@ export class OpenCodeManager {
 
     try {
       const child = spawn('opencode', [resolvedPath], {
-        detached: true,
+        detached: !this.isWindows,
         stdio: 'ignore',
         cwd: resolvedPath,
         env: { ...process.env, OPENCODE_PID: '' }
       });
       
-      child.unref();
+      if (!this.isWindows) {
+        child.unref();
+      }
       
       await new Promise(r => setTimeout(r, 1000));
       
-      // 验证启动成功
       const newPid = this.findProcessByCwd(resolvedPath);
       
       if (newPid) {
@@ -222,62 +322,28 @@ export class OpenCodeManager {
     }
   }
 
-  /**
-   * 查找指定目录的 OpenCode 进程
-   */
   findProcessByCwd(cwd: string): number | null {
-    try {
-      const output = execSync('pgrep -f "bin/\\.opencode$"', { 
-        encoding: 'utf-8',
-        timeout: 5000 
-      });
-      
-      const pids = output.trim().split('\n').filter(p => p);
-      
-      for (const pidStr of pids) {
-        const pid = parseInt(pidStr, 10);
-        if (isNaN(pid)) continue;
-        
-        try {
-          const cwdOutput = execSync(`lsof -p ${pid} | grep " cwd " | awk '{print $9}'`, {
-            encoding: 'utf-8',
-            timeout: 2000
-          });
-          const processCwd = cwdOutput.trim();
-          
-          if (processCwd === cwd || processCwd.startsWith(cwd)) {
-            return pid;
-          }
-        } catch {}
+    const processes = this.getProcesses();
+    for (const proc of processes) {
+      if (proc.cwd === cwd || proc.cwd.startsWith(cwd)) {
+        return proc.pid;
       }
-    } catch {}
-    
+    }
     return null;
   }
 
-  /**
-   * 获取当前管理的目录
-   */
   getCurrentDirectory(): string | null {
     return this.currentManagedDir;
   }
 
-  /**
-   * 获取所有进程状态
-   */
   getProcesses(): OpenCodeProcess[] {
-    // 刷新进程列表
     this.scanProcesses();
     return Array.from(this.processes.values());
   }
 
-  /**
-   * 解析微信消息中的命令
-   */
   parseCommand(message: string): SwitchCommand {
     const trimmed = message.trim();
     
-    // 切换目录命令
     const switchPatterns = [
       /^cd\s+(.+)$/i,
       /^切换到\s+(.+)$/i,
@@ -291,44 +357,37 @@ export class OpenCodeManager {
       if (match) {
         let targetPath = match[1].trim();
         
-        // 处理 ~
         if (targetPath.startsWith('~')) {
-          targetPath = targetPath.replace('~', process.env.HOME || '');
+          targetPath = targetPath.replace('~', os.homedir());
         }
         
-        // 处理相对路径
-        if (!targetPath.startsWith('/')) {
-          // 如果是数字，可能是项目编号
+        if (!path.isAbsolute(targetPath)) {
           if (/^\d+$/.test(targetPath)) {
             return { type: 'switch', targetPath };
           }
+          targetPath = path.resolve(process.cwd(), targetPath);
         }
         
         return { type: 'switch', targetPath };
       }
     }
     
-    // 列表命令
     if (/^list$/i.test(trimmed) || /^列表$/i.test(trimmed) || /^ls$/i.test(trimmed)) {
       return { type: 'list' };
     }
     
-    // 状态命令（完整状态）
     if (/^status$/i.test(trimmed) || /^状态$/i.test(trimmed) || /^st$/i.test(trimmed)) {
       return { type: 'status' };
     }
     
-    // 当前工作路径查询（简化版）
     if (/当前.*工作.*路径|当前.*目录|^pwd$|^where$|^which.*dir/i.test(trimmed)) {
       return { type: 'pwd' };
     }
     
-    // 杀死命令
     if (/^kill$/i.test(trimmed) || /^停止$/i.test(trimmed) || /^结束$/i.test(trimmed)) {
       return { type: 'kill' };
     }
     
-    // 强管/弱管模式切换
     const modeMatch = trimmed.match(/^(strong|weak)模式?$/i) || 
                       trimmed.match(/^模式\s+(strong|weak)$/i) ||
                       trimmed.match(/^setmode\s+(strong|weak)$/i);
@@ -342,9 +401,6 @@ export class OpenCodeManager {
     return { type: 'unknown' };
   }
 
-  /**
-   * 执行命令并返回回复消息
-   */
   async executeCommand(command: SwitchCommand): Promise<string> {
     switch (command.type) {
       case 'switch':

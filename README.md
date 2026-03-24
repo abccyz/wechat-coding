@@ -67,6 +67,82 @@ npm install
 npm run build
 ```
 
+## 服务管理
+
+支持跨平台服务管理（macOS、Linux、Windows）。
+
+### macOS / Linux
+
+使用 Makefile：
+
+```bash
+# 前台启动（开发模式）
+make start
+
+# 后台启动
+make daemon
+
+# 停止服务
+make stop
+
+# 重启服务
+make restart
+
+# 查看状态
+make status
+
+# 查看日志
+make logs
+
+# 开发模式（热重载）
+make dev
+
+# 使用自定义端口
+PORT=8080 make start
+```
+
+### Windows
+
+使用 PowerShell 脚本：
+
+```powershell
+# 前台启动（开发模式）
+.\scripts\start.ps1 start
+
+# 后台启动
+.\scripts\start.ps1 daemon
+
+# 停止服务
+.\scripts\start.ps1 stop
+
+# 重启服务
+.\scripts\start.ps1 restart
+
+# 查看状态
+.\scripts\start.ps1 status
+
+# 查看日志
+.\scripts\start.ps1 logs
+
+# 开发模式（热重载）
+.\scripts\start.ps1 dev
+
+# 使用自定义端口
+$env:PORT = 8080; .\scripts\start.ps1 start
+```
+
+或者使用 Makefile（需要安装 Make for Windows）：
+
+```powershell
+# 通过 Chocolatey 安装 Make
+choco install make
+
+# 然后使用 Makefile
+make start
+make stop
+make status
+```
+
 ## 快速开始
 
 ```typescript
