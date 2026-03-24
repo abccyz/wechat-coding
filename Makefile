@@ -235,23 +235,24 @@ daemon: check-deps check-build kill-existing
 	@PORT=$(PORT) nohup npm run web > $(LOG_FILE) 2>&1 &
 	@echo $$! > $(PID_FILE)
 	@echo "$(BLUE)[INFO]$(NC) 等待服务启动..."
-	@i=0; while [ $$i -lt 10 ]; do \
+	@started=0; i=0; while [ $$i -lt 10 ]; do \
 		i=$$((i + 1)); \
 		sleep 1; \
 		if curl -s "http://localhost:$(PORT)/api/status" >$(NULL) 2>&1; then \
-			echo "$(GREEN)[OK]$(NC) 服务启动成功!"; \
-			echo "$(BLUE)[INFO]$(NC) 访问: http://localhost:$(PORT)"; \
-			echo "$(BLUE)[INFO]$(NC) 日志: tail -f $(LOG_FILE)"; \
-			exit 0; \
-		fi; \
-		if ! ps -p $$(cat $(PID_FILE) 2>/dev/null) >$(NULL) 2>&1; then \
-			echo "$(RED)[ERROR]$(NC) 启动失败，查看日志: tail -f $(LOG_FILE)"; \
-			$(RM) $(PID_FILE); \
-			exit 1; \
+			started=1; \
+			break; \
 		fi; \
 	done; \
-	echo "$(RED)[ERROR]$(NC) 启动超时"; \
-	exit 1
+	if [ $$started -eq 1 ]; then \
+		echo "$(GREEN)[OK]$(NC) 服务启动成功!"; \
+		echo "$(BLUE)[INFO]$(NC) 访问: http://localhost:$(PORT)"; \
+		echo "$(BLUE)[INFO]$(NC) 日志: tail -f $(LOG_FILE)"; \
+		exit 0; \
+	else \
+		echo "$(RED)[ERROR]$(NC) 启动超时，查看日志: tail -f $(LOG_FILE)"; \
+		$(RM) $(PID_FILE); \
+		exit 1; \
+	fi
 endif
 
 # 停止服务
