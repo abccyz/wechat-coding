@@ -14,6 +14,7 @@ import {
 } from './cli-providers/index.ts';
 import { CLIProviderConfig } from './cli-providers/base.ts';
 import { WechatMessageOptimizer } from './message-optimizer.ts';
+import { opencodeManager } from '../dist/tools/opencode-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,15 +76,87 @@ async function initBotFromStoredCredentials() {
           }
         });
 
+        // 首先检查是否是目录切换命令
+        const command = opencodeManager.parseCommand(msg.text);
+        if (command.type !== 'unknown') {
+          try {
+            const result = await opencodeManager.executeCommand(command);
+            await bot!.reply(msg, result);
+            broadcast({
+              type: 'message',
+              message: {
+                userId: msg.userId,
+                text: result,
+                type: 'text',
+                timestamp: new Date().toISOString(),
+                direction: 'outgoing',
+                provider: 'system'
+              }
+            });
+            return;
+          } catch (err) {
+            console.error('[Command] Error:', err);
+            await bot!.reply(msg, '❌ 命令执行失败');
+            return;
+          }
+        }
+
         const provider = getCLIProvider();
         if (provider && provider.isEnabled() && messageOptimizer) {
           try {
+            // 阶段性推送状态到微信
+            let lastProgressMessage = '';
+            let progressCount = 0;
+            
+            const sendProgressToWechat = async (message: string) => {
+              if (message !== lastProgressMessage) {
+                lastProgressMessage = message;
+                progressCount++;
+                if (progressCount <= 2 || progressCount % 3 === 0) {
+                  try {
+                    await bot!.send(msg.userId, message);
+                  } catch (err) {
+                    console.error('[Progress] Failed to send:', err);
+                  }
+                }
+              }
+            };
+            
             let aiResponse = '';
             await messageOptimizer.sendStreamingResponse(
               msg.userId,
               msg._contextToken,
               async () => {
-                aiResponse = await provider.processMessage(msg.text);
+                aiResponse = await provider.processMessage(
+                  msg.text,
+                  undefined,
+                  {
+                    onProgress: (update) => {
+                      broadcast({
+                        type: 'aiProgress',
+                        userId: msg.userId,
+                        stage: update.stage,
+                        message: update.message,
+                        progress: update.progress
+                      });
+                      
+                      if (update.stage !== 'complete' && update.stage !== 'starting') {
+                        sendProgressToWechat(update.message).catch(() => {});
+                      }
+                    },
+                    onPartialResult: (text) => {
+                      if (text.length > 500 && progressCount % 5 === 0) {
+                        broadcast({
+                          type: 'aiProgress',
+                          userId: msg.userId,
+                          stage: 'processing',
+                          message: `已生成 ${text.length} 字符...`,
+                          progress: 50
+                        });
+                      }
+                    }
+                  }
+                );
                 return aiResponse;
               },
               (progress) => {
@@ -118,6 +191,10 @@ async function initBotFromStoredCredentials() {
               stage: 'error',
               message: err instanceof Error ? err.message : '处理失败'
             });
+            
+            try {
+              await bot!.send(msg.userId, `❌ 处理失败: ${err instanceof Error ? err.message : '未知错误'}`);
+            } catch {}
           }
         }
       });
@@ -214,16 +291,99 @@ app.post('/api/login', async (req, res) => {
         }
       });
 
+      // 首先检查是否是目录切换命令
+      const command = opencodeManager.parseCommand(msg.text);
+      if (command.type !== 'unknown') {
+        try {
+          const result = await opencodeManager.executeCommand(command);
+          
+          // 发送命令执行结果回复
+          await bot.reply(msg, result);
+          
+          // 广播到 Web 界面
+          broadcast({
+            type: 'message',
+            message: {
+              userId: msg.userId,
+              text: result,
+              type: 'text',
+              timestamp: new Date().toISOString(),
+              direction: 'outgoing',
+              provider: 'system'
+            }
+          });
+          
+          return;
+        } catch (err) {
+          console.error('[Command] Error:', err);
+          await bot.reply(msg, '❌ 命令执行失败');
+          return;
+        }
+      }
+
       const provider = getCLIProvider();
       if (provider && provider.isEnabled() && messageOptimizer) {
         try {
-          // 使用优化器发送流式回复
+          // 阶段性推送状态到微信
+          let lastProgressMessage = '';
+          let progressCount = 0;
+          
+          const sendProgressToWechat = async (message: string) => {
+            // 避免重复发送相同消息
+            if (message !== lastProgressMessage) {
+              lastProgressMessage = message;
+              progressCount++;
+              // 每第1、3、5次推送发送到微信，减少干扰
+              if (progressCount <= 2 || progressCount % 3 === 0) {
+                try {
+                  await bot!.send(msg.userId, message);
+                } catch (err) {
+                  console.error('[Progress] Failed to send:', err);
+                }
+              }
+            }
+          };
+          
+          // 使用优化器发送流式回复，传入进度回调
           let aiResponse = '';
           await messageOptimizer.sendStreamingResponse(
             msg.userId,
             msg._contextToken,
             async () => {
-              aiResponse = await provider.processMessage(msg.text);
+              // 调用 provider 并传入进度回调
+              aiResponse = await provider.processMessage(
+                msg.text,
+                undefined,
+                {
+                  onProgress: (update) => {
+                    // 发送到 Web 界面
+                    broadcast({
+                      type: 'aiProgress',
+                      userId: msg.userId,
+                      stage: update.stage,
+                      message: update.message,
+                      progress: update.progress
+                    });
+                    
+                    // 阶段性推送到微信
+                    if (update.stage !== 'complete' && update.stage !== 'starting') {
+                      sendProgressToWechat(update.message).catch(() => {});
+                    }
+                  },
+                  onPartialResult: (text) => {
+                    // 长任务时推送部分结果
+                    if (text.length > 500 && progressCount % 5 === 0) {
+                      broadcast({
+                        type: 'aiProgress',
+                        userId: msg.userId,
+                        stage: 'processing',
+                        message: `已生成 ${text.length} 字符...`,
+                        progress: 50
+                      });
+                    }
+                  }
+                }
+              );
               return aiResponse;
             },
             (progress) => {
@@ -260,6 +420,11 @@ app.post('/api/login', async (req, res) => {
             stage: 'error',
             message: err instanceof Error ? err.message : '处理失败'
           });
+          
+          // 错误也发送到微信
+          try {
+            await bot!.send(msg.userId, `❌ 处理失败: ${err instanceof Error ? err.message : '未知错误'}`);
+          } catch {}
         }
       }
     });
@@ -396,6 +561,100 @@ app.post('/api/ai/test', async (req, res) => {
   }
 });
 
+app.post('/api/opencode/switch', async (req, res) => {
+  try {
+    const { directory } = req.body;
+    
+    if (!directory) {
+      return res.status(400).json({ 
+        success: false, 
+        error: '请提供目标目录路径' 
+      });
+    }
+
+    const targetPath = require('path').resolve(directory);
+    
+    if (!require('fs').existsSync(targetPath)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `目录不存在: ${targetPath}` 
+      });
+    }
+
+    // 广播切换事件
+    broadcast({
+      type: 'opencodeSwitching',
+      message: `正在切换到: ${targetPath}`
+    });
+
+    // 使用简化版逻辑
+    try {
+      const { execSync, spawn } = require('child_process');
+      
+      // 1. 结束旧进程
+      try {
+        execSync('pkill -f "bin/\\.opencode$" 2>/dev/null', { timeout: 5000 });
+      } catch {}
+      
+      await new Promise(r => setTimeout(r, 500));
+
+      // 2. 在新目录启动
+      const child = spawn('opencode', [targetPath], {
+        detached: true,
+        stdio: 'ignore',
+        cwd: targetPath,
+        env: { ...process.env, OPENCODE_PID: '' }
+      });
+      
+      child.unref();
+
+      broadcast({
+        type: 'opencodeSwitched',
+        directory: targetPath
+      });
+
+      res.json({ 
+        success: true, 
+        message: 'OpenCode 已在新目录启动',
+        directory: targetPath 
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '启动失败'
+      });
+    }
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err instanceof Error ? err.message : '切换失败'
+    });
+  }
+});
+
+app.get('/api/opencode/mode', (req, res) => {
+  res.json({
+    success: true,
+    strongMode: opencodeManager.isStrongMode()
+  });
+});
+
+app.post('/api/opencode/mode', (req, res) => {
+  try {
+    const { strongMode } = req.body;
+    opencodeManager.setStrongMode(strongMode);
+    res.json({
+      success: true,
+      strongMode: opencodeManager.isStrongMode()
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err instanceof Error ? err.message : '设置失败'
+    });
+  }
+});
+
 wss.on('connection', (ws) => {
   wsClients.push(ws);
   
@@ -417,5 +676,5 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
   console.log(`📱 Open the URL above in your browser to start`);
   console.log(`🤖 Multi-CLI AI integration ready`);
-  console.log(`   Supported providers: OpenCode, Codex, Claude Code`);
+  console.log(`   Supported providers: OpenCode, Codex, Claude Code, Aider, Copilot, Codeium, Tabby`);
 });

@@ -22,6 +22,18 @@ export interface TestResult {
   message: string;
 }
 
+export interface ProgressUpdate {
+  stage: 'starting' | 'searching' | 'analyzing' | 'processing' | 'complete' | 'error';
+  message: string;
+  partialResult?: string;
+  progress?: number;
+}
+
+export interface ProcessOptions {
+  onProgress?: (update: ProgressUpdate) => void;
+  onPartialResult?: (text: string) => void;
+}
+
 export abstract class CLIProvider {
   protected config: CLIProviderConfig;
 
@@ -48,7 +60,7 @@ export abstract class CLIProvider {
   abstract getDescription(): string;
   abstract getInstallCommand(): string;
   
-  abstract processMessage(text: string, history?: Message[]): Promise<string | null>;
+  abstract processMessage(text: string, history?: Message[], options?: ProcessOptions): Promise<string | null>;
   abstract listAgents?(): Promise<Agent[]>;
   abstract testConnection(): Promise<TestResult>;
 }

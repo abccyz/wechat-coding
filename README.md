@@ -26,16 +26,11 @@
 |---------|------|------|
 | **OpenCode** | ✅ 已调试完成 | 支持多 Agent 的智能编程助手，支持 build、plan、explore 等 Agents |
 | **OpenAI Codex** | ✅ 已接入 | OpenAI 官方代码生成助手，支持 GPT-4o、GPT-4-Turbo 等模型 |
-
-### 开发中 🚧
-
-| CLI 工具 | 状态 | 说明 |
-|---------|------|------|
-| **Claude Code** | 🚧 开发中 | Anthropic Claude 官方 CLI，支持 Claude 3 Opus/Sonnet/Haiku |
-| **Aider** | 📋 计划中 | 支持多模型（GPT-4、Claude 等）的 AI 编程助手 |
-| **GitHub Copilot CLI** | 📋 计划中 | GitHub Copilot 命令行工具 |
-| **Codeium** | 📋 计划中 | 免费的 AI 编程助手 |
-| **Tabby** | 📋 计划中 | 自托管的 AI 编程助手 |
+| **Claude Code** | ✅ 已接入 | Anthropic Claude 官方 CLI，支持 Claude 3 Opus/Sonnet/Haiku |
+| **Aider** | ✅ 已接入 | 支持多模型（GPT-4、Claude 等）的 AI 编程助手 |
+| **GitHub Copilot CLI** | ✅ 已接入 | GitHub 官方 AI 编程助手 |
+| **Codeium** | ✅ 已接入 | 免费的 AI 编程助手，支持代码补全和生成 |
+| **Tabby** | ✅ 已接入 | 自托管的 AI 编程助手 |
 
 ### 接入架构
 

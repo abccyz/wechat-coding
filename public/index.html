@@ -584,6 +584,37 @@
         
         <div id="installInfo" class="install-info hidden"></div>
       </div>
+
+      <div class="section" style="margin-top: 20px; border-top: 1px solid #0f3460; padding-top: 20px;">
+        <div class="section-title">🔒 管理模式</div>
+        <div class="form-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="strongModeToggle" onchange="toggleStrongMode()">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">强管模式（接管所有 OpenCode 进程）</span>
+          </label>
+        </div>
+        <div style="font-size: 12px; color: #888; margin-top: 8px; line-height: 1.5;">
+          💡 开启后，可通过微信发送命令控制<br>
+          例：cd /path/to/dir<br>
+          例：list<br>
+          例：status
+        </div>
+      </div>
+
+      <div class="section" style="margin-top: 20px; border-top: 1px solid #0f3460; padding-top: 20px;">
+        <div class="section-title">📁 工作目录</div>
+        <div class="form-group">
+          <label>当前 OpenCode 目录</label>
+          <input type="text" id="currentDir" readonly style="background: #0f3460; color: #888;" placeholder="未启动">
+        </div>
+        <div class="form-group">
+          <label>切换到新目录</label>
+          <input type="text" id="newDirInput" placeholder="/path/to/project 或 ~/project">
+        </div>
+        <button class="btn btn-primary" onclick="switchDirectory()">🚀 切换并重启</button>
+        <div id="switchResult" class="test-result hidden"></div>
+      </div>
     </div>
   </div>
 
@@ -1104,9 +1135,96 @@
       if (e.key === 'Enter') sendMessage();
     });
 
-    // Initialize
+    // 强管模式切换
+    async function toggleStrongMode() {
+      const toggle = document.getElementById('strongModeToggle');
+      const enabled = toggle.checked;
+      
+      try {
+        const res = await fetch('/api/opencode/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ strongMode: enabled })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          addSystemMessage(enabled ? '🔒 已启用强管模式' : '🔓 已切换到弱管模式');
+        } else {
+          toggle.checked = !enabled;
+          alert('设置失败: ' + (data.error || '未知错误'));
+        }
+      } catch (err) {
+        toggle.checked = !enabled;
+        alert('请求失败: ' + err.message);
+      }
+    }
+
+    // 加载强管模式状态
+    async function loadStrongMode() {
+      try {
+        const res = await fetch('/api/opencode/mode');
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('strongModeToggle').checked = data.strongMode;
+        }
+      } catch (err) {
+        console.error('Failed to load strong mode:', err);
+      }
+    }
+
+    // 目录切换功能
+    async function switchDirectory() {
+      const newDir = document.getElementById('newDirInput').value.trim();
+      const resultDiv = document.getElementById('switchResult');
+      
+      if (!newDir) {
+        resultDiv.className = 'test-result error';
+        resultDiv.textContent = '请输入目录路径';
+        resultDiv.classList.remove('hidden');
+        return;
+      }
+      
+      resultDiv.className = 'test-result';
+      resultDiv.textContent = '正在切换...';
+      resultDiv.classList.remove('hidden');
+      
+      try {
+        const res = await fetch('/api/opencode/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ directory: newDir })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          resultDiv.className = 'test-result success';
+          resultDiv.textContent = '✅ ' + data.message;
+          document.getElementById('currentDir').value = data.directory;
+          document.getElementById('newDirInput').value = '';
+        } else {
+          resultDiv.className = 'test-result error';
+          resultDiv.textContent = '❌ ' + (data.error || '切换失败');
+        }
+      } catch (err) {
+        resultDiv.className = 'test-result error';
+        resultDiv.textContent = '❌ 请求失败: ' + err.message;
+      }
+    }
+
+    // 监听 WebSocket 切换事件
+    ws.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'opencodeSwitched') {
+        document.getElementById('currentDir').value = data.directory;
+        addSystemMessage('OpenCode 已切换到: ' + data.directory);
+      }
+    });
+
+    // 页面加载时初始化
     loadProviders();
-    loadAIConfig();
+    loadStrongMode();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </body>

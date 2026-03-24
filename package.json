@@ -20,6 +20,7 @@
     "start": "node dist/index.js",
     "example": "npx tsx examples/nodejs/echo-bot.ts",
     "web": "npx tsx web/server.ts",
+    "switch": "npx tsx tools/switch-dir.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

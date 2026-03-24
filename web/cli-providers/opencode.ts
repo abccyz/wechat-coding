@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { CLIProvider, Message, Agent, TestResult } from './base.ts';
+import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate } from './base.ts';
 
 export class OpenCodeProvider extends CLIProvider {
   getName(): string {
@@ -14,10 +14,60 @@ export class OpenCodeProvider extends CLIProvider {
     return 'npm install -g opencode';
   }
 
-  async processMessage(text: string, history?: Message[]): Promise<string | null> {
+  /**
+   * 检测消息类型，用于决定推送策略
+   */
+  private detectMessageType(text: string): { type: string; estimatedTime: string } {
+    const lower = text.toLowerCase();
+    
+    if (lower.includes('explore') || lower.includes('搜索') || lower.includes('查找')) {
+      return { type: 'explore', estimatedTime: '30-60秒' };
+    }
+    if (lower.includes('plan') || lower.includes('规划') || lower.includes('设计')) {
+      return { type: 'plan', estimatedTime: '1-3分钟' };
+    }
+    if (lower.includes('build') || lower.includes('构建') || lower.includes('编译')) {
+      return { type: 'build', estimatedTime: '10-30秒' };
+    }
+    if (lower.includes('analyze') || lower.includes('分析') || lower.includes('code review')) {
+      return { type: 'analyze', estimatedTime: '1-2分钟' };
+    }
+    if (lower.includes('oracle') || lower.includes('架构')) {
+      return { type: 'oracle', estimatedTime: '2-5分钟' };
+    }
+    
+    return { type: 'general', estimatedTime: '10-30秒' };
+  }
+
+  /**
+   * 从输出内容推断当前阶段
+   */
+  private inferStage(output: string): ProgressUpdate['stage'] {
+    const lower = output.toLowerCase();
+    
+    if (lower.includes('search') || lower.includes('explore') || lower.includes('grep') || lower.includes('finding')) {
+      return 'searching';
+    }
+    if (lower.includes('analyze') || lower.includes('analyzing') || lower.includes('思考') || lower.includes('thinking')) {
+      return 'analyzing';
+    }
+    if (lower.includes('process') || lower.includes('executing') || lower.includes('running')) {
+      return 'processing';
+    }
+    if (lower.includes('complete') || lower.includes('done') || lower.includes('finished')) {
+      return 'complete';
+    }
+    
+    return 'processing';
+  }
+
+  async processMessage(text: string, history?: Message[], options?: ProcessOptions): Promise<string | null> {
     if (!this.isEnabled()) {
       return null;
     }
+
+    const { onProgress, onPartialResult } = options || {};
+    const messageType = this.detectMessageType(text);
 
     return new Promise((resolve, reject) => {
       const args = ['run', '--format', 'json'];
@@ -32,6 +82,16 @@ export class OpenCodeProvider extends CLIProvider {
 
       console.log(`[OpenCode] Running: opencode ${args.join(' ')}`);
       console.log(`[OpenCode] Input: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
+      console.log(`[OpenCode] Detected type: ${messageType.type}, estimated: ${messageType.estimatedTime}`);
+
+      // 通知开始
+      if (onProgress) {
+        onProgress({
+          stage: 'starting',
+          message: `⏳ 开始处理 [${messageType.type}]，预计耗时 ${messageType.estimatedTime}...`,
+          progress: 0
+        });
+      }
 
       const opencode = spawn('opencode', args, {
         timeout: this.config.timeout,
@@ -41,6 +101,42 @@ export class OpenCodeProvider extends CLIProvider {
       let output = '';
       let errorOutput = '';
       const textParts: string[] = [];
+      let lastProgressTime = Date.now();
+      let progressCount = 0;
+      
+      // 阶段性推送定时器
+      const progressTimer = setInterval(() => {
+        if (onProgress && textParts.length > 0) {
+          const currentText = textParts.join('');
+          const stage = this.inferStage(currentText);
+          const elapsed = Math.round((Date.now() - lastProgressTime) / 1000);
+          
+          // 每15秒推送一次进度更新
+          if (elapsed > 15) {
+            progressCount++;
+            const messages: Record<ProgressUpdate['stage'], string> = {
+              starting: '⏳ 正在启动...',
+              searching: `🔍 正在搜索代码库... (${progressCount * 15}秒)`,
+              analyzing: `📊 正在分析... (${progressCount * 15}秒)`,
+              processing: `⚙️ 正在处理... (${progressCount * 15}秒)`,
+              complete: '✅ 处理完成',
+              error: '❌ 处理出错'
+            };
+            
+            onProgress({
+              stage,
+              message: messages[stage] || `⏳ 处理中... (${progressCount * 15}秒)`,
+              partialResult: currentText.slice(-500), // 最后500字符作为预览
+              progress: Math.min(progressCount * 10, 90)
+            });
+            
+            // 如果有部分内容，也推送
+            if (onPartialResult && currentText.length > 100) {
+              onPartialResult(currentText.slice(-1000));
+            }
+          }
+        }
+      }, 5000); // 每5秒检查一次
 
       // Send input via stdin
       opencode.stdin.write(text);
@@ -57,6 +153,24 @@ export class OpenCodeProvider extends CLIProvider {
               const event = JSON.parse(line);
               if (event.type === 'text' && event.part?.text) {
                 textParts.push(event.part.text);
+                
+                // 实时推送部分结果
+                if (onPartialResult) {
+                  const currentText = textParts.join('');
+                  // 每累积500字符推送一次
+                  if (currentText.length % 500 < 100) {
+                    onPartialResult(currentText.slice(-1000));
+                  }
+                }
+              }
+              
+              // 检测特殊事件类型
+              if (event.type === 'progress' && onProgress) {
+                onProgress({
+                  stage: event.stage as ProgressUpdate['stage'] || 'processing',
+                  message: event.message || '处理中...',
+                  progress: event.progress
+                });
               }
             } catch {
               // Ignore non-JSON lines
@@ -70,9 +184,18 @@ export class OpenCodeProvider extends CLIProvider {
       });
 
       const timeout = setTimeout(() => {
+        clearInterval(progressTimer);
         opencode.kill('SIGTERM');
         if (textParts.length > 0) {
-          resolve(textParts.join(''));
+          const result = textParts.join('');
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成（超时返回部分结果）',
+              progress: 100
+            });
+          }
+          resolve(result);
         } else {
           reject(new Error('OpenCode CLI timeout'));
         }
@@ -80,18 +203,47 @@ export class OpenCodeProvider extends CLIProvider {
 
       opencode.on('close', (code) => {
         clearTimeout(timeout);
+        clearInterval(progressTimer);
         
         if (textParts.length > 0) {
-          resolve(textParts.join(''));
+          const result = textParts.join('');
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成',
+              progress: 100
+            });
+          }
+          resolve(result);
         } else if (code === 0) {
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成',
+              progress: 100
+            });
+          }
           resolve(output.trim());
         } else {
+          if (onProgress) {
+            onProgress({
+              stage: 'error',
+              message: `❌ 处理失败: ${errorOutput || 'Unknown error'}`
+            });
+          }
           reject(new Error(`OpenCode exited with code ${code}: ${errorOutput || 'Unknown error'}`));
         }
       });
 
       opencode.on('error', (err) => {
         clearTimeout(timeout);
+        clearInterval(progressTimer);
+        if (onProgress) {
+          onProgress({
+            stage: 'error',
+            message: `❌ 启动失败: ${err.message}`
+          });
+        }
         if (err.message.includes('ENOENT')) {
           reject(new Error('OpenCode CLI not found. Run: npm install -g opencode'));
         } else {
