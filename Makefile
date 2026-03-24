@@ -221,33 +221,22 @@ start: check-deps check-build kill-existing
 	@PORT=$(PORT) npm run web
 endif
 
-# 后台启动服务 - Windows 使用 start 命令
+# 后台启动服务
 ifeq ($(IS_WINDOWS),1)
 daemon: check-deps check-build kill-existing
 	@echo "[INFO] 后台启动服务..."
 	@start /B cmd /C "set PORT=$(PORT) && npm run web > $(LOG_FILE) 2>&1"
 	@powershell -Command "(Get-NetTCPConnection -LocalPort $(PORT) -ErrorAction SilentlyContinue).OwningProcess | Out-File -FilePath $(PID_FILE)"
 	@echo "[INFO] 等待服务启动..."
-	@powershell -Command "\
-		for ($$i = 1; $$i -le 10; $$i++) { \
-			Start-Sleep 1; \
-			try { \
-				$$response = Invoke-WebRequest -Uri 'http://localhost:$(PORT)/api/status' -UseBasicParsing -ErrorAction Stop; \
-				Write-Host '[OK] 服务启动成功!' -ForegroundColor Green; \
-				Write-Host '[INFO] 访问: http://localhost:$(PORT)'; \
-				Write-Host '[INFO] 日志: type $(LOG_FILE)'; \
-				exit 0; \
-			} catch {} \
-		} \
-		Write-Host '[ERROR] 启动超时' -ForegroundColor Red; \
-	"
+	@powershell -Command "$$success=$$false; for ($$i=1; $$i -le 10; $$i++) { Start-Sleep 1; try { Invoke-WebRequest -Uri 'http://localhost:$(PORT)/api/status' -UseBasicParsing -ErrorAction Stop | Out-Null; Write-Host '[OK] 服务启动成功!' -ForegroundColor Green; Write-Host '[INFO] 访问: http://localhost:$(PORT)'; Write-Host '[INFO] 日志: type $(LOG_FILE)'; $$success=$$true; break; } catch {} } if (-not $$success) { Write-Host '[ERROR] 启动超时' -ForegroundColor Red; exit 1 }"
 else
 daemon: check-deps check-build kill-existing
 	@echo "$(BLUE)[INFO]$(NC) 后台启动服务..."
 	@PORT=$(PORT) nohup npm run web > $(LOG_FILE) 2>&1 &
 	@echo $$! > $(PID_FILE)
 	@echo "$(BLUE)[INFO]$(NC) 等待服务启动..."
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+	@i=0; while [ $$i -lt 10 ]; do \
+		i=$$((i + 1)); \
 		sleep 1; \
 		if curl -s "http://localhost:$(PORT)/api/status" >$(NULL) 2>&1; then \
 			echo "$(GREEN)[OK]$(NC) 服务启动成功!"; \
@@ -260,8 +249,9 @@ daemon: check-deps check-build kill-existing
 			$(RM) $(PID_FILE); \
 			exit 1; \
 		fi; \
-	done
-	@echo "$(RED)[ERROR]$(NC) 启动超时"
+	done; \
+	echo "$(RED)[ERROR]$(NC) 启动超时"; \
+	exit 1
 endif
 
 # 停止服务
