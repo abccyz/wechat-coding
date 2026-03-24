@@ -10,7 +10,7 @@ export interface OpenCodeProcess {
 }
 
 export interface SwitchCommand {
-  type: 'switch' | 'list' | 'status' | 'kill' | 'unknown';
+  type: 'switch' | 'list' | 'status' | 'pwd' | 'kill' | 'unknown';
   targetPath?: string;
   mode?: 'strong' | 'weak';
 }
@@ -84,11 +84,14 @@ export class OpenCodeManager {
    */
   async getCurrentWorkingDir(): Promise<string | null> {
     try {
-      const result = execSync('lsof -c opencode | grep " cwd " | head -1 | awk \'{print $9}\'', {
-        encoding: 'utf-8',
-        timeout: 5000
-      });
-      return result.trim() || null;
+      const processes = this.getProcesses();
+      if (processes.length === 0) {
+        return null;
+      }
+      
+      // 按启动时间排序，取最近的
+      const sorted = processes.sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+      return sorted[0].cwd;
     } catch {
       return null;
     }
@@ -310,14 +313,14 @@ export class OpenCodeManager {
       return { type: 'list' };
     }
     
-    // 状态命令
+    // 状态命令（完整状态）
     if (/^status$/i.test(trimmed) || /^状态$/i.test(trimmed) || /^st$/i.test(trimmed)) {
       return { type: 'status' };
     }
     
-    // 当前工作路径查询
-    if (/当前.*工作.*路径|当前.*目录|pwd|where|which.*dir/i.test(trimmed)) {
-      return { type: 'status' };
+    // 当前工作路径查询（简化版）
+    if (/当前.*工作.*路径|当前.*目录|^pwd$|^where$|^which.*dir/i.test(trimmed)) {
+      return { type: 'pwd' };
     }
     
     // 杀死命令
@@ -388,6 +391,26 @@ export class OpenCodeManager {
           });
         }
         return status;
+        
+      case 'pwd':
+        const workingDir = await this.getCurrentWorkingDir();
+        if (workingDir) {
+          return `📁 当前工作目录:\n${workingDir}`;
+        }
+        
+        const managedDir = this.getCurrentDirectory();
+        if (managedDir) {
+          return `📁 当前工作目录:\n${managedDir}`;
+        }
+        
+        const allProcs = this.getProcesses();
+        if (allProcs.length > 0) {
+          const sorted = allProcs.sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+          const latest = sorted[0];
+          return `📁 当前工作目录:\n${latest.cwd}\n\n(发现 ${allProcs.length} 个 OpenCode 进程，显示最近启动的)`;
+        }
+        
+        return '⚠️ 未检测到运行中的 OpenCode 进程\n\n请先启动 OpenCode 或在某个目录运行 opencode 命令。';
         
       case 'kill':
         const killed = this.killAllProcesses();
