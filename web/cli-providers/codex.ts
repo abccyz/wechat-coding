@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate } from './base.ts';
+import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate, getWorkingDirectory } from './base.ts';
 
 export class CodexProvider extends CLIProvider {
   getName(): string {
@@ -74,6 +74,7 @@ export class CodexProvider extends CLIProvider {
 
       const codex = spawn('codex', args, {
         timeout: this.config.timeout,
+        cwd: getWorkingDirectory(),
         env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
       });
 

@@ -34,6 +34,22 @@ export interface ProcessOptions {
   onPartialResult?: (text: string) => void;
 }
 
+// 工作目录管理器接口
+export interface WorkingDirectoryManager {
+  getCurrentDirectory(): string | null;
+}
+
+// 全局工作目录管理器（由外部设置）
+let globalWorkingDirectoryManager: WorkingDirectoryManager | null = null;
+
+export function setWorkingDirectoryManager(manager: WorkingDirectoryManager): void {
+  globalWorkingDirectoryManager = manager;
+}
+
+export function getWorkingDirectory(): string {
+  return globalWorkingDirectoryManager?.getCurrentDirectory() || process.cwd();
+}
+
 export abstract class CLIProvider {
   protected config: CLIProviderConfig;
 

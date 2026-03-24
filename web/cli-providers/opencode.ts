@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
-import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate } from './base.ts';
-import { opencodeManager } from '../../src/tools/opencode-manager.ts';
+import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate, getWorkingDirectory } from './base.ts';
 
 export class OpenCodeProvider extends CLIProvider {
   getName(): string {
@@ -94,7 +93,7 @@ export class OpenCodeProvider extends CLIProvider {
         });
       }
 
-      const cwd = opencodeManager.getCurrentDirectory() || process.cwd();
+      const cwd = getWorkingDirectory();
       console.log(`[OpenCode] Working directory: ${cwd}`);
 
       const opencode = spawn('opencode', args, {

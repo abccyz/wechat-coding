@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { CLIProvider, Message, Agent, TestResult } from './base.ts';
+import { CLIProvider, Message, Agent, TestResult, getWorkingDirectory } from './base.ts';
 
 export class CopilotProvider extends CLIProvider {
   getName(): string {
@@ -32,6 +32,7 @@ export class CopilotProvider extends CLIProvider {
 
       const gh = spawn('gh', args, {
         timeout: this.config.timeout,
+        cwd: getWorkingDirectory(),
         env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
       });
 

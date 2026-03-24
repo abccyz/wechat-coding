@@ -12,7 +12,7 @@ import {
   getCLIProvider,
   setCLIProvider
 } from './cli-providers/index.ts';
-import { CLIProviderConfig } from './cli-providers/base.ts';
+import { CLIProviderConfig, setWorkingDirectoryManager } from './cli-providers/base.ts';
 import { WechatMessageOptimizer } from './message-optimizer.ts';
 import { opencodeManager } from '../dist/tools/opencode-manager.js';
 import { AIProcessTracker, aiProcessTrackerManager, AIProcessStage } from './ai-process-tracker.ts';
@@ -32,6 +32,9 @@ let bot: WeixinBot | null = null;
 let messageOptimizer: WechatMessageOptimizer | null = null;
 let wsClients: WebSocket[] = [];
 let currentCredentials: { accountId: string; userId: string } | null = null;
+
+// 设置全局工作目录管理器
+setWorkingDirectoryManager(opencodeManager);
 
 function broadcast(data: object) {
   const message = JSON.stringify(data);
