@@ -1,6 +1,6 @@
-# Weixin Bot SDK for Node.js
+# WeChat Coding - 微信 AI 编程助手
 
-微信 iLink Bot SDK — 让任何 Agent 5 分钟接入微信消息。
+基于微信 iLink Bot 的 AI CLI 控制台集成方案 — 让任何 Agent 5 分钟接入微信消息。
 
 > **参考项目**  
 > 本项目基于 [epiral/weixin-bot](https://github.com/epiral/weixin-bot) 的实现思路进行开发，感谢原作者提供的微信 iLink Bot API 集成方案。
@@ -61,6 +61,8 @@
 ## 安装
 
 ```bash
+git clone https://github.com/abccyz/wechat-coding.git
+cd wechat-coding
 npm install
 npm run build
 ```
@@ -149,6 +151,38 @@ interface IncomingMessage {
 
 优雅停止长轮询循环。
 
+## 测试
+
+本项目使用 [Vitest](https://vitest.dev/) 作为测试框架。
+
+```bash
+# 运行测试
+npm test
+
+# 运行测试并监视文件变化
+npm run test:watch
+
+# 运行测试并生成覆盖率报告
+npm run test:coverage
+```
+
+### 测试覆盖范围
+
+- `src/types.ts` - 类型定义测试 (100% 覆盖)
+- `src/api.ts` - API 请求层测试 (100% 覆盖)
+- `src/auth.ts` - 认证逻辑测试 (96.8% 覆盖)
+- `src/client.ts` - WeixinBot 客户端测试 (核心功能)
+
+### 测试结构
+
+```
+src/
+├── types.test.ts      # 类型定义测试
+├── api.test.ts        # API 层单元测试
+├── auth.test.ts       # 认证逻辑单元测试
+└── client.test.ts     # 客户端单元测试
+```
+
 ## 工作原理
 
 1. `login()` 获取二维码登录 URL，等待微信确认，保存返回的 bot token
@@ -161,14 +195,22 @@ interface IncomingMessage {
 ```
 .
 ├── src/
-│   ├── index.ts      # 模块导出
-│   ├── client.ts     # WeixinBot 主类
-│   ├── auth.ts       # 登录和认证
-│   ├── api.ts        # API 请求层
-│   └── types.ts      # TypeScript 类型定义
+│   ├── index.ts         # 模块导出
+│   ├── client.ts        # WeixinBot 主类
+│   ├── client.test.ts   # 客户端测试
+│   ├── auth.ts          # 登录和认证
+│   ├── auth.test.ts     # 认证测试
+│   ├── api.ts           # API 请求层
+│   ├── api.test.ts      # API 层测试
+│   ├── types.ts         # TypeScript 类型定义
+│   └── types.test.ts    # 类型测试
 ├── examples/
 │   └── nodejs/
-│       └── echo-bot.ts   # 完整示例
+│       └── echo-bot.ts  # 完整示例
+├── .github/
+│   └── workflows/
+│       └── test.yml     # CI 测试工作流
+├── vitest.config.ts     # Vitest 配置
 ├── package.json
 ├── tsconfig.json
 └── README.md

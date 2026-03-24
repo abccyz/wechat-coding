@@ -132,9 +132,14 @@
       align-items: center;
       gap: 10px;
       cursor: pointer;
+      position: relative;
+      z-index: 1;
     }
     .toggle-switch input {
-      display: none;
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
     }
     .toggle-slider {
       width: 40px;

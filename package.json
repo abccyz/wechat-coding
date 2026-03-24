@@ -16,12 +16,18 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js",
-    "example": "npx tsx examples/nodejs/echo-bot.ts",
+    "start": "make daemon",
+    "stop": "make stop",
+    "restart": "make restart",
+    "status": "make status",
+    "logs": "make logs",
+    "dev": "make dev",
     "web": "npx tsx web/server.ts",
     "switch": "npx tsx tools/switch-dir.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "wechat",
@@ -34,13 +40,19 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abccyz/wechat-coding.git"
+  },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^2.0.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^2.0.0"
   },
   "dependencies": {
     "express": "^5.2.1",

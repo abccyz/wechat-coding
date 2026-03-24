@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { CLIProvider, Message, Agent, TestResult } from './base.ts';
+import { CLIProvider, Message, Agent, TestResult, ProcessOptions, ProgressUpdate } from './base.ts';
 
 export class ClaudeCodeProvider extends CLIProvider {
   getName(): string {
@@ -14,10 +14,60 @@ export class ClaudeCodeProvider extends CLIProvider {
     return 'npm install -g @anthropic-ai/claude-code';
   }
 
-  async processMessage(text: string, history?: Message[]): Promise<string | null> {
+  /**
+   * 检测消息类型
+   */
+  private detectMessageType(text: string): { type: string; estimatedTime: string } {
+    const lower = text.toLowerCase();
+    
+    if (lower.includes('explain') || lower.includes('解释') || lower.includes('说明')) {
+      return { type: 'explain', estimatedTime: '20-40秒' };
+    }
+    if (lower.includes('refactor') || lower.includes('重构') || lower.includes('优化')) {
+      return { type: 'refactor', estimatedTime: '30-90秒' };
+    }
+    if (lower.includes('fix') || lower.includes('修复') || lower.includes('bug')) {
+      return { type: 'fix', estimatedTime: '30-60秒' };
+    }
+    if (lower.includes('implement') || lower.includes('实现') || lower.includes('编写')) {
+      return { type: 'implement', estimatedTime: '60-180秒' };
+    }
+    if (lower.includes('test') || lower.includes('测试')) {
+      return { type: 'test', estimatedTime: '40-80秒' };
+    }
+    
+    return { type: 'general', estimatedTime: '20-60秒' };
+  }
+
+  /**
+   * 从输出内容推断阶段
+   */
+  private inferStage(output: string): ProgressUpdate['stage'] {
+    const lower = output.toLowerCase();
+    
+    if (lower.includes('search') || lower.includes('find') || lower.includes('grep')) {
+      return 'searching';
+    }
+    if (lower.includes('analyze') || lower.includes('thinking') || lower.includes('consider')) {
+      return 'analyzing';
+    }
+    if (lower.includes('process') || lower.includes('handle')) {
+      return 'processing';
+    }
+    if (lower.includes('generat') || lower.includes('write') || lower.includes('create')) {
+      return 'processing';
+    }
+    
+    return 'processing';
+  }
+
+  async processMessage(text: string, history?: Message[], options?: ProcessOptions): Promise<string | null> {
     if (!this.isEnabled()) {
       return null;
     }
+
+    const { onProgress, onPartialResult } = options || {};
+    const messageType = this.detectMessageType(text);
 
     return new Promise((resolve, reject) => {
       const args = [];
@@ -34,6 +84,18 @@ export class ClaudeCodeProvider extends CLIProvider {
       args.push('--no-interactive');
       args.push(text);
 
+      console.log(`[ClaudeCode] Running: claude ${args.join(' ')}`);
+      console.log(`[ClaudeCode] Detected type: ${messageType.type}, estimated: ${messageType.estimatedTime}`);
+
+      // 通知开始
+      if (onProgress) {
+        onProgress({
+          stage: 'starting',
+          message: `⏳ 开始处理 [${messageType.type}]，预计耗时 ${messageType.estimatedTime}...`,
+          progress: 0
+        });
+      }
+
       const claude = spawn('claude', args, {
         timeout: this.config.timeout,
         env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
@@ -41,24 +103,124 @@ export class ClaudeCodeProvider extends CLIProvider {
 
       let output = '';
       let errorOutput = '';
+      const textParts: string[] = [];
+      let lastProgressTime = Date.now();
+      let progressCount = 0;
+      
+      // 阶段性推送定时器
+      const progressTimer = setInterval(() => {
+        if (onProgress && textParts.length > 0) {
+          const currentText = textParts.join('');
+          const stage = this.inferStage(currentText);
+          const elapsed = Math.round((Date.now() - lastProgressTime) / 1000);
+          
+          // 每15秒推送一次进度更新
+          if (elapsed > 15) {
+            progressCount++;
+            const messages: Record<string, string> = {
+              starting: '⏳ 正在启动...',
+              searching: `🔍 正在搜索代码库... (${progressCount * 15}秒)`,
+              analyzing: `🤔 正在分析... (${progressCount * 15}秒)`,
+              processing: `⚙️ 正在处理... (${progressCount * 15}秒)`,
+              complete: '✅ 处理完成',
+              error: '❌ 处理出错'
+            };
+            
+            onProgress({
+              stage,
+              message: messages[stage] || `⏳ 处理中... (${progressCount * 15}秒)`,
+              partialResult: currentText.slice(-500),
+              progress: Math.min(progressCount * 10, 90)
+            });
+            
+            // 推送部分结果
+            if (onPartialResult && currentText.length > 100) {
+              onPartialResult(currentText.slice(-1000));
+            }
+          }
+        }
+      }, 5000);
 
       claude.stdout.on('data', (data) => {
-        output += data.toString();
+        const str = data.toString();
+        output += str;
+        textParts.push(str);
+        
+        // 实时推送部分结果
+        if (onPartialResult) {
+          const currentText = textParts.join('');
+          // 每累积500字符推送一次
+          if (currentText.length % 500 < 100) {
+            onPartialResult(currentText.slice(-1000));
+          }
+        }
       });
 
       claude.stderr.on('data', (data) => {
         errorOutput += data.toString();
       });
 
+      const timeout = setTimeout(() => {
+        clearInterval(progressTimer);
+        claude.kill('SIGTERM');
+        if (textParts.length > 0) {
+          const result = textParts.join('');
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成（超时返回部分结果）',
+              progress: 100
+            });
+          }
+          resolve(result);
+        } else {
+          reject(new Error('Claude Code timeout'));
+        }
+      }, this.config.timeout);
+
       claude.on('close', (code) => {
-        if (code === 0) {
+        clearTimeout(timeout);
+        clearInterval(progressTimer);
+        
+        if (textParts.length > 0) {
+          const result = textParts.join('');
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成',
+              progress: 100
+            });
+          }
+          resolve(result);
+        } else if (code === 0) {
+          if (onProgress) {
+            onProgress({
+              stage: 'complete',
+              message: '✅ 处理完成',
+              progress: 100
+            });
+          }
           resolve(output.trim());
         } else {
-          reject(new Error(`Claude Code exited with code ${code}: ${errorOutput || output}`));
+          if (onProgress) {
+            onProgress({
+              stage: 'error',
+              message: `❌ 处理失败: ${errorOutput || 'Unknown error'}`
+            });
+          }
+          reject(new Error(`Claude Code exited with code ${code}: ${errorOutput || 'Unknown error'}`));
         }
       });
 
       claude.on('error', (err) => {
+        clearTimeout(timeout);
+        clearInterval(progressTimer);
+        if (onProgress) {
+          onProgress({
+            stage: 'error',
+            message: `❌ 启动失败: ${err.message}`
+          });
+        }
         if (err.message.includes('ENOENT')) {
           reject(new Error('Claude Code CLI not found. Run: npm install -g @anthropic-ai/claude-code'));
         } else {

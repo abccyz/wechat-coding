@@ -15,6 +15,8 @@ import {
 import { CLIProviderConfig } from './cli-providers/base.ts';
 import { WechatMessageOptimizer } from './message-optimizer.ts';
 import { opencodeManager } from '../dist/tools/opencode-manager.js';
+import { AIProcessTracker, aiProcessTrackerManager, AIProcessStage } from './ai-process-tracker.ts';
+import { wrapProviderWithProgress } from './provider-progress-adapter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,26 +105,43 @@ async function initBotFromStoredCredentials() {
 
         const provider = getCLIProvider();
         if (provider && provider.isEnabled() && messageOptimizer) {
-          try {
-            // 阶段性推送状态到微信
-            let lastProgressMessage = '';
-            let progressCount = 0;
+          // 创建任务追踪器
+          const taskId = `${msg.userId}_${Date.now()}`;
+          const tracker = aiProcessTrackerManager.createTracker(taskId, msg.userId);
+          
+          // 监听推送事件
+          let lastWechatPushTime = 0;
+          const minWechatInterval = 20000; // 微信最小推送间隔20秒
+          
+          tracker.on('push', async (data) => {
+            // 广播到 WebSocket
+            broadcast({
+              type: 'aiProgress',
+              userId: msg.userId,
+              stage: data.stage,
+              message: data.message,
+              progress: data.progress
+            });
             
-            const sendProgressToWechat = async (message: string) => {
-              if (message !== lastProgressMessage) {
-                lastProgressMessage = message;
-                progressCount++;
-                if (progressCount <= 2 || progressCount % 3 === 0) {
-                  try {
-                    await bot!.send(msg.userId, message);
-                  } catch (err) {
-                    console.error('[Progress] Failed to send:', err);
-                  }
+            // 推送到微信（有频率限制）
+            if (data.pushToWechat) {
+              const now = Date.now();
+              if (now - lastWechatPushTime >= minWechatInterval || 
+                  data.priority >= 8 || // 高优先级消息（error/complete）
+                  data.stage === AIProcessStage.STARTING) {
+                try {
+                  await bot!.send(msg.userId, data.message);
+                  lastWechatPushTime = now;
+                } catch (err) {
+                  console.error('[Tracker] Failed to push to WeChat:', err);
                 }
               }
-            };
-            
+            }
+          });
+          
+          try {
             let aiResponse = '';
+            
             await messageOptimizer.sendStreamingResponse(
               msg.userId,
               msg._contextToken,
@@ -132,43 +151,38 @@ async function initBotFromStoredCredentials() {
                   undefined,
                   {
                     onProgress: (update) => {
-                      broadcast({
-                        type: 'aiProgress',
-                        userId: msg.userId,
-                        stage: update.stage,
+                      // 同步更新 tracker
+                      tracker.updateProgress({
+                        stage: update.stage as AIProcessStage,
                         message: update.message,
-                        progress: update.progress
+                        progress: update.progress,
+                        partialResult: update.partialResult
                       });
-                      
-                      if (update.stage !== 'complete' && update.stage !== 'starting') {
-                        sendProgressToWechat(update.message).catch(() => {});
-                      }
                     },
                     onPartialResult: (text) => {
-                      if (text.length > 500 && progressCount % 5 === 0) {
-                        broadcast({
-                          type: 'aiProgress',
-                          userId: msg.userId,
-                          stage: 'processing',
-                          message: `已生成 ${text.length} 字符...`,
-                          progress: 50
-                        });
-                      }
+                      tracker.updateProgress({
+                        stage: AIProcessStage.GENERATING,
+                        message: `已生成 ${text.length} 字符...`,
+                        partialResult: text,
+                        progress: 60
+                      });
                     }
                   }
                 );
                 return aiResponse;
               },
               (progress) => {
-                broadcast({
-                  type: 'aiProgress',
-                  userId: msg.userId,
-                  stage: progress.stage,
-                  message: progress.message,
+                // 发送阶段的进度
+                tracker.updateProgress({
+                  stage: progress.stage as AIProcessStage,
+                  message: progress.message || '发送中...',
                   progress: progress.progress
                 });
               }
             );
+            
+            // 完成
+            tracker.complete(aiResponse);
             
             if (aiResponse) {
               broadcast({
@@ -183,17 +197,27 @@ async function initBotFromStoredCredentials() {
                 }
               });
             }
+            
+            // 清理追踪器（延迟清理，保留历史记录）
+            setTimeout(() => {
+              aiProcessTrackerManager.removeTracker(taskId);
+            }, 3600000); // 1小时后清理
+            
           } catch (err) {
             console.error('[CLI Provider] Processing error:', err);
+            
+            const errorMessage = err instanceof Error ? err.message : '处理失败';
+            tracker.error(errorMessage);
+            
             broadcast({
               type: 'aiProgress',
               userId: msg.userId,
               stage: 'error',
-              message: err instanceof Error ? err.message : '处理失败'
+              message: errorMessage
             });
             
             try {
-              await bot!.send(msg.userId, `❌ 处理失败: ${err instanceof Error ? err.message : '未知错误'}`);
+              await bot!.send(msg.userId, `❌ 处理失败: ${errorMessage}`);
             } catch {}
           }
         }
@@ -205,6 +229,13 @@ async function initBotFromStoredCredentials() {
       });
 
       console.log('[Init] 已恢复登录状态:', stored.userId);
+      
+      // 广播登录成功消息给所有客户端
+      broadcast({
+        type: 'loginSuccess',
+        accountId: stored.accountId,
+        userId: stored.userId
+      });
     } else {
       console.log('[Init] 未发现已保存的凭证');
     }
